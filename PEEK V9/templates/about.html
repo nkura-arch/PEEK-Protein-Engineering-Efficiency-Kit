@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}About — PEEK{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --navy:#2174ad; --indigo:#4a9fd4; --slate:#8ea4ba; --cream:#e6eef5;
+    --paper:#11202e; --cream-2:#11202e; --code-bg:#e6eef5;
+    --ink:#e6eef5; --ink-body:#c9d8e6; --ink-muted:#8ea4ba;
+    --line:#1e3447; --line-soft:#1e3447; --sage:#10b981; --clay:#f59e0b;
+    --serif:Georgia,'Iowan Old Style','Times New Roman',serif;
+  }
+  .about-page { max-width: 880px; margin: 0 auto; }
+
+  /* The one dark anchor on the page: a navy banner with cream type. */
+  .about-hero {
+    background: var(--navy);
+    border: 1px solid var(--navy); border-radius: .6rem;
+    padding: 2.75rem 2rem; margin-bottom: 2rem; text-align: center;
+  }
+  .about-hero h1 { font-family:var(--serif); color:var(--code-bg); font-weight: 600; letter-spacing: .01em; margin-bottom: .6rem; }
+  .about-hero .lede { color: #c9d8e6; font-size: 1.05rem; line-height:1.65; max-width: 640px; margin: 0 auto; }
+  .about-hero .pill {
+    display:inline-block; background:rgba(255,255,255,.12); color:var(--cream); font-size:.7rem;
+    font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+    padding:.32rem .85rem; border-radius:999px; margin-bottom:1.1rem; border:1px solid rgba(255,255,255,.25);
+  }
+
+  .about-section {
+    background: rgba(17,30,46,0.55);
+    -webkit-backdrop-filter: blur(14px) saturate(125%);
+    backdrop-filter: blur(14px) saturate(125%);
+    border: 1px solid rgba(220,234,248,0.09); border-radius: .6rem;
+    padding: 1.9rem; margin-bottom: 1.5rem;
+    box-shadow: 0 8px 30px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .about-section h2 {
+    font-family:var(--serif);
+    font-size: .9rem; font-weight: 700; color: var(--indigo);
+    text-transform: uppercase; letter-spacing: .1em; margin-bottom: 1.1rem;
+  }
+  .about-section p { color: var(--ink-body); line-height: 1.75; }
+  .about-section p strong { color: var(--ink); }
+  .about-section p:last-child { margin-bottom: 0; }
+
+  .placeholder-note {
+    border-left: 3px solid var(--clay); background: rgba(245,158,11,.08);
+    padding: .45rem .9rem; border-radius: .3rem; color: #fbbf24;
+    font-size: .78rem; font-style: italic; margin: .5rem 0 1rem;
+  }
+
+  .tool-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .tool-card {
+    background:#11202e; border:1px solid var(--line); border-radius:.5rem; padding:1.2rem 1.25rem;
+  }
+  .tool-card .ico {
+    width:38px; height:38px; border-radius:.45rem; display:flex; align-items:center;
+    justify-content:center; margin-bottom:.7rem; font-size:1rem;
+  }
+  .tool-card h3 { font-family:var(--serif); font-size:1rem; font-weight:600; margin-bottom:.35rem; color:var(--ink); }
+  .tool-card p { font-size:.82rem; color:var(--ink-muted); margin:0; line-height:1.55; }
+
+  .team-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:1rem; }
+  .team-card { background:#11202e; border:1px solid var(--line); border-radius:.5rem; padding:1.2rem; text-align:center; }
+  .team-avatar {
+    width:90px; height:90px; border-radius:50%; margin:0 auto .85rem;
+    overflow:hidden; border:2px solid var(--line);
+  }
+  .team-avatar img {
+    width:100%; height:100%; object-fit:cover; object-position:center 20%;
+    display:block;
+  }
+  .team-card .role { font-size:.7rem; color:var(--slate); text-transform:uppercase; letter-spacing:.1em; }
+  .team-card .name { font-weight:700; color:var(--ink); margin:.15rem 0; }
+  .team-card .bio  { font-size:.78rem; color:var(--ink-muted); }
+
+  .timeline { list-style:none; padding-left:0; margin:0; }
+  .timeline li { position:relative; padding-left:1.6rem; margin-bottom:1rem; color:var(--ink-body); }
+  .timeline li:last-child { margin-bottom:0; }
+  .timeline li::before {
+    content:''; position:absolute; left:0; top:.4rem; width:.6rem; height:.6rem;
+    border-radius:50%; background:var(--paper); border:2px solid var(--indigo);
+  }
+  .timeline .ver { font-weight:700; color:var(--indigo); font-family:var(--serif); }
+</style>
+
+<div class="about-page">
+
+  <!-- Hero -->
+  <div class="about-hero">
+    <div class="pill">Our Story</div>
+    <h1>PEEK — Protein Engineering Efficiency Kit</h1>
+    <p class="lede">
+      A focused toolkit for the everyday molecular-biology workflow: silent mutations,
+      primer design, and a visual map of exactly what your edits do to the plasmid —
+      built on reproducible, algorithmic science.
+    </p>
+  </div>
+
+  <!-- Backstory -->
+  <div class="about-section">
+    <h2>The Backstory</h2>
+    <p>
+      PEEK grew out of research conducted by <strong>Kevin Ghobadi</strong> in protein
+      engineering. Planning even a straightforward silent mutation — identifying a valid site,
+      verifying codon preservation, designing primer pairs, and confirming melting temperatures —
+      required moving between multiple disconnected tools that frequently produced inconsistent
+      results. The individual calculations were sound, but the lack of an integrated workflow
+      introduced unnecessary room for error.
+    </p>
+    <p>
+      Kevin developed PEEK to address that directly, bringing the core steps of the process
+      into a single, cohesive platform. <strong>Nathan Kura</strong> joined the project early
+      and contributed substantially across both the computational and interface sides of the
+      tool. The underlying methods — nearest-neighbor thermodynamics, codon adaptation scoring,
+      restriction-site analysis — are fully documented, so any result the tool produces can be
+      independently verified. Kevin's work was also informed by access to research resources
+      at <strong>Washington University in St. Louis</strong>, which helped ensure the tool
+      reflects the realities of practical experimental work.
+    </p>
+  </div>
+
+  <!-- Mission -->
+  <div class="about-section">
+    <h2>What We Believe</h2>
+    <p>
+      <strong>Reproducibility first.</strong> The same inputs will always produce the same
+      outputs, and the underlying formulas are documented so any result can be checked
+      independently.
+    </p>
+    <p>
+      <strong>Transparent methods.</strong> Every value the tool reports derives from a
+      specific, established algorithm — nothing is estimated or inferred without a documented
+      basis.
+    </p>
+    <p>
+      <strong>Utility over complexity.</strong> Features are included because they make
+      the cloning workflow more accurate and efficient, not to add scope.
+    </p>
+  </div>
+
+  <!-- What PEEK does -->
+  <div class="about-section">
+    <h2>What's Inside</h2>
+    <div class="tool-grid">
+      <div class="tool-card">
+        <div class="ico" style="background:rgba(33,116,173,.14);color:#a6c2db;"><i class="fas fa-cut"></i></div>
+        <h3>Silent Mutations + CAI</h3>
+        <p>Find codon-preserving changes that introduce restriction sites, scored with codon
+           adaptation index and structure penalties.</p>
+      </div>
+      <div class="tool-card">
+        <div class="ico" style="background:rgba(163,123,120,.18);color:#b9cfe4;"><i class="fas fa-wrench"></i></div>
+        <h3>Primer Design</h3>
+        <p>Design enzyme-insertion, amino-acid-insertion, and Q5 site-directed mutagenesis
+           primers with NEB-matched Tm calculations.</p>
+      </div>
+      <div class="tool-card">
+        <div class="ico" style="background:rgba(16,185,129,.14);color:#86efac;"><i class="fas fa-microscope"></i></div>
+        <h3>Sequence Visualizer</h3>
+        <p>See your plasmid as a circular map and a base-level view — pick a mutation from the
+           sidebar and watch the primer arrows appear.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team -->
+  <div class="about-section">
+    <h2>The Team</h2>
+    <div class="team-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+      <div class="team-card">
+        <div class="team-avatar">
+          <img src="{{ url_for('static', filename='kevin2.jpg') }}" alt="Kevin Ghobadi">
+        </div>
+        <div class="role">Researcher &amp; Developer</div>
+        <div class="name">Kevin Ghobadi</div>
+      </div>
+      <div class="team-card">
+        <div class="team-avatar">
+          <img src="{{ url_for('static', filename='nathan.jpg') }}" alt="Nathan Kura">
+        </div>
+        <div class="role">Co-Developer</div>
+        <div class="name">Nathan Kura</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

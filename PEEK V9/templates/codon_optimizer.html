@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block title %}Codon Optimizer - PEEK{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title mb-0">
+                    <i class="fas fa-chart-line me-2"></i>
+                    Codon Optimizer
+                </h2>
+                <small class="text-muted">Optimize DNA sequences for expression in different host organisms</small>
+            </div>
+            <div class="card-body">
+                <form method="POST" id="codonOptimizerForm">
+                    <div class="mb-3">
+                        <label for="dna" class="form-label">DNA Sequence (Coding Region)</label>
+                        <textarea class="form-control font-monospace" id="dna" name="dna" rows="4" 
+                                  placeholder="Enter DNA sequence (must be divisible by 3)" required>{{ dna or '' }}</textarea>
+                        <div class="form-text">Enter coding sequence only (start to stop). Must be in-frame (divisible by 3).</div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="host" class="form-label">Target Host Organism</label>
+                                <select class="form-select" id="host" name="host">
+                                    {% for host_id, host_name in hosts.items() %}
+                                        <option value="{{ host_id }}" {% if selected_host == host_id %}selected{% endif %}>{{ host_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="max_changes" class="form-label">Max Codon Changes</label>
+                                <input type="number" class="form-control" id="max_changes" name="max_changes" 
+                                       value="{{ max_changes or 5 }}" min="1" max="20">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="target_site" class="form-label">Target Restriction Site (optional)</label>
+                                <input type="text" class="form-control font-monospace" id="target_site" name="target_site" 
+                                       value="{{ target_site or '' }}" placeholder="e.g., GAATTC">
+                                <div class="form-text">Bonus score if site is introduced</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-bolt me-1"></i>Optimize Sequence
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        {% if analysis %}
+        <div class="card mt-4">
+            <div class="card-header">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-dna me-2"></i>
+                    Original Sequence Analysis
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-2">
+                        <h6 class="text-muted">Length</h6>
+                        <span class="h5">{{ analysis.length }} bp</span>
+                        <div class="small text-muted">{{ analysis.codons }} codons</div>
+                    </div>
+                    <div class="col-md-2">
+                        <h6 class="text-muted">CAI Score</h6>
+                        <span class="h5 {% if analysis.cai >= 0.7 %}text-success{% elif analysis.cai >= 0.5 %}text-warning{% else %}text-danger{% endif %}">
+                            {{ analysis.cai }}
+                        </span>
+                        <div class="small text-muted">0-1 scale</div>
+                    </div>
+                    <div class="col-md-2">
+                        <h6 class="text-muted">GC Content</h6>
+                        <span class="h5 {% if 40 <= analysis.gc_content <= 60 %}text-success{% else %}text-warning{% endif %}">
+                            {{ analysis.gc_content }}%
+                        </span>
+                    </div>
+                    <div class="col-md-2">
+                        <h6 class="text-muted">Rare Clusters</h6>
+                        <span class="h5 {% if analysis.rare_clusters == 0 %}text-success{% else %}text-warning{% endif %}">
+                            {{ analysis.rare_clusters }}
+                        </span>
+                    </div>
+                    <div class="col-md-2">
+                        <h6 class="text-muted">Homopolymers</h6>
+                        <span class="h5 {% if analysis.homopolymers == 0 %}text-success{% else %}text-warning{% endif %}">
+                            {{ analysis.homopolymers }}
+                        </span>
+                    </div>
+                    <div class="col-md-2">
+                        <h6 class="text-muted">Quality Score</h6>
+                        <span class="h5 {% if analysis.quality_score >= 70 %}text-success{% elif analysis.quality_score >= 50 %}text-warning{% else %}text-danger{% endif %}">
+                            {{ analysis.quality_score }}
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <label class="form-label text-muted">Amino Acid Sequence</label>
+                    <div class="font-monospace bg-dark p-2 rounded small" style="word-break: break-all;">
+                        {{ analysis.amino_acids }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if variants %}
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h3 class="card-title mb-0">
+                        <i class="fas fa-list-ol me-2"></i>
+                        Optimized Variants
+                    </h3>
+                    <small class="text-muted">Ranked by composite score (CAI, rare codons, minimal changes)</small>
+                </div>
+                <span class="badge bg-primary">{{ variants|length }} variants</span>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Score</th>
+                                <th>CAI</th>
+                                <th>CAI Change</th>
+                                <th>GC%</th>
+                                <th>Rare Clusters</th>
+                                <th>Changes</th>
+                                <th>RE Site</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for variant in variants %}
+                            <tr>
+                                <td>
+                                    {% if loop.index == 1 %}
+                                        <span class="badge bg-success">1st</span>
+                                    {% elif loop.index == 2 %}
+                                        <span class="badge bg-info">2nd</span>
+                                    {% elif loop.index == 3 %}
+                                        <span class="badge bg-warning text-dark">3rd</span>
+                                    {% else %}
+                                        {{ loop.index }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong class="{% if variant.score >= 80 %}text-success{% elif variant.score >= 60 %}text-warning{% else %}text-danger{% endif %}">
+                                        {{ variant.score }}
+                                    </strong>
+                                </td>
+                                <td>{{ variant.cai }}</td>
+                                <td>
+                                    {% if variant.cai_improvement > 0 %}
+                                        <span class="text-success">+{{ variant.cai_improvement }}</span>
+                                    {% elif variant.cai_improvement < 0 %}
+                                        <span class="text-danger">{{ variant.cai_improvement }}</span>
+                                    {% else %}
+                                        <span class="text-muted">0</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="{% if 40 <= variant.gc_content <= 60 %}text-success{% else %}text-warning{% endif %}">
+                                        {{ variant.gc_content }}%
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="{% if variant.rare_clusters == 0 %}text-success{% else %}text-warning{% endif %}">
+                                        {{ variant.rare_clusters }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ variant.num_changes }}</span>
+                                </td>
+                                <td>
+                                    {% if variant.has_target_site %}
+                                        <i class="fas fa-check text-success"></i>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary copy-btn" 
+                                            data-copy="{{ variant.sequence }}" title="Copy sequence">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-info" type="button"
+                                            data-bs-toggle="collapse" data-bs-target="#details-{{ loop.index }}">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr class="collapse" id="details-{{ loop.index }}">
+                                <td colspan="9" class="bg-dark">
+                                    <div class="p-2">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label text-muted small">Optimized DNA Sequence</label>
+                                                <div class="font-monospace bg-secondary p-2 rounded small" style="word-break: break-all; max-height: 100px; overflow-y: auto;">
+                                                    {{ variant.sequence }}
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label text-muted small">Codon Changes</label>
+                                                <div class="small">
+                                                    {% for change in variant.changes %}
+                                                        <span class="badge bg-warning text-dark me-1">
+                                                            Pos {{ change.codon_index + 1 }}: {{ change.original }} → {{ change.new }}
+                                                        </span>
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% elif request.method == 'POST' and not error %}
+        <div class="card mt-4">
+            <div class="card-body text-center">
+                <i class="fas fa-check-circle text-success fa-3x mb-3"></i>
+                <h4>Sequence Already Optimized</h4>
+                <p class="text-muted">
+                    Your sequence is already well-optimized for the selected host. 
+                    No better variants were found within the specified parameters.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Scoring Help Modal -->
+<div class="modal fade" id="scoringHelpModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Scoring Methodology</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6>Codon Adaptation Index (CAI)</h6>
+                <p>Measures how well the codon usage matches the host organism's preferences. Higher values (closer to 1.0) indicate better adaptation and potentially higher expression.</p>
+                
+                <h6>Rare Codon Clusters</h6>
+                <p>Consecutive rare codons can cause ribosome stalling and reduce translation efficiency. Fewer clusters is better.</p>
+                
+                <h6>GC Content</h6>
+                <p>Optimal range is typically 40-60%. Extreme values can affect mRNA stability and expression.</p>
+                
+                <h6>Composite Score</h6>
+                <p>Combines all metrics: <code>Score = CAI×100 - RareClusters×5 - Changes×2 - Homopolymers×3 + SiteBonus</code></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="text-center mt-3">
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#scoringHelpModal">
+        <i class="fas fa-question-circle me-1"></i>How Scoring Works
+    </button>
+</div>
+{% endblock %}

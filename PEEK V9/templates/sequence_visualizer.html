@@ -1,0 +1,1147 @@
+{% extends "base.html" %}
+
+{% block title %}Sequence Visualizer — PEEK{% endblock %}
+
+{% block content %}
+<script>
+  // Default example for this tab (shared DNA carries across tabs).
+  window.PEEK_EXAMPLE = {
+    dna: 'ATGGCTAGCAAAGGCGAAGAACTGTTTACCGGCGTTGTTCCGATTCTGGTTGAACTGGATGGCGATGTTAACGGCCATAAATTTAGCGTG',
+    original_window: 'GAAGAA',
+    mutated_window: 'GAGGAA'
+  };
+</script>
+<style>
+  /* ── Palette (matches global style.css — blue dark) ── */
+  :root {
+    --navy:#2174ad; --indigo:#4a9fd4; --slate:#7a93ad; --cream:#0b1722;
+    --paper:#11202e; --cream-2:#11202e; --code-bg:#0b1722;
+    --ink:#e6eef5; --ink-body:#e6eef5; --ink-muted:#8ea4ba;
+    --line:#1e3447; --line-soft:#1e3447; --line-cool:#1e3447; --clay:#f59e0b; --sage:#10b981;
+    --c-fwd:#3b82f6; --c-rev:#ef4444; --c-mut:#f59e0b;
+    --mono:'JetBrains Mono','SFMono-Regular','Courier New',monospace;
+    --serif:Georgia,'Iowan Old Style','Times New Roman',serif;
+  }
+
+  /* ── Layout ── */
+  .viz-page { max-width: 1200px; margin: 0 auto; }
+
+  /* ── Input panel ── */
+  .panel { background:rgba(17,30,46,0.55); -webkit-backdrop-filter:blur(14px) saturate(125%); backdrop-filter:blur(14px) saturate(125%); border:1px solid rgba(220,234,248,0.09); border-radius:.5rem; padding:1.5rem; margin-bottom:1.5rem; box-shadow:0 8px 30px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,0.06); }
+  .panel-title { font-size:.72rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--indigo); margin-bottom:1rem; }
+  .mode-tabs { display:flex; gap:.5rem; margin-bottom:1.5rem; }
+  .mode-tab { flex:1; padding:.6rem 1rem; border-radius:.4rem; border:1px solid var(--line-cool); background:#11202e; color:var(--ink-muted); font-size:.85rem; font-weight:600; cursor:pointer; text-align:center; transition:all .15s; }
+  .mode-tab.active { background:var(--navy); border-color:var(--navy); color:#e6eef5; }
+  .mode-tab:hover:not(.active) { border-color:var(--indigo); color:var(--indigo); }
+
+  /* ── Sequence viewer ── */
+  .seq-viewer { font-family:var(--mono); font-size:.78rem; background:var(--code-bg); border:1px solid var(--line); border-radius:.5rem; padding:1.25rem 1rem; overflow-x:auto; }
+  .seq-row { margin-bottom:.1rem; }
+  .seq-row-wrapper { position:relative; margin-bottom:.75rem; }
+
+  /* Primer annotation bars */
+  .primer-track { position:relative; height:16px; margin-bottom:1px; }
+  .primer-bar { height:100%; border-radius:3px; display:flex; align-items:center; overflow:hidden; }
+  .primer-bar-fwd { background:rgba(59,130,246,.16); border:1px solid var(--c-fwd); }
+  .primer-bar-rev { background:rgba(239,68,68,.18); border:1px solid var(--c-rev); }
+  .primer-bar-label { font-size:.58rem; padding:0 4px; color:var(--navy); font-weight:700; letter-spacing:.02em; white-space:nowrap; line-height:1; }
+
+  /* Position ruler */
+  .ruler-tick-label { font-size:.58rem; color:var(--slate); line-height:1; white-space:nowrap; transform:translateX(-2px); }
+
+  /* Strand lines */
+  .strand-line { display:flex; align-items:center; white-space:nowrap; height:20px; }
+  .strand-label { width:28px; font-size:.6rem; color:var(--ink-muted); flex-shrink:0; text-align:right; padding-right:6px; }
+  .strand-dir { width:16px; font-size:.7rem; color:var(--ink-muted); flex-shrink:0; text-align:center; }
+  .strand-end-label { font-size:.6rem; color:var(--ink-muted); margin-left:3px; flex-shrink:0; }
+  .strand-spacer { width:44px; flex-shrink:0; }
+
+  /* Nucleotide spans */
+  .nt { display:inline-block; width:11px; text-align:center; font-weight:700; border-radius:2px; line-height:20px; transition:background .15s; }
+  .nt-a { color:#d2685f; }
+  .nt-t { color:#f59e0b; }
+  .nt-g { color:#4db6ac; }
+  .nt-c { color:#38bdf8; }
+  .nt-n { color:#6b819a; }
+
+  /* Overlays */
+  .nt.in-fwd  { background:rgba(59,130,246,.16); }
+  .nt.in-rev  { background:rgba(239,68,68,.20); }
+  .nt.in-mut  { background:rgba(245,158,11,.16); outline:1px solid rgba(245,158,11,.55); border-radius:2px; }
+  .nt.changed { background:rgba(245,158,11,.22); outline:1px solid var(--clay); border-radius:2px; font-style:italic; }
+  .nt.in-fwd.in-mut  { background:rgba(59,130,246,.30); outline:1px solid var(--indigo); }
+
+  /* Connector (backbone line between strands) */
+  .backbone { border-left: 2px solid var(--line); height:8px; width:1px; margin-left: calc(44px + 2px); }
+
+  /* ── Stats panel ── */
+  .primer-stats { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem; }
+  @media (max-width: 768px) { .primer-stats { grid-template-columns:1fr; } }
+  .primer-card { background:#11202e; border:1px solid var(--line-cool); border-radius:.5rem; padding:1rem; }
+  .primer-card-fwd { border-top: 3px solid var(--c-fwd); }
+  .primer-card-rev { border-top: 3px solid var(--c-rev); }
+  .primer-seq { font-family:var(--mono); font-size:.78rem; color:var(--ink-body); background:var(--code-bg); padding:.5rem; border-radius:.4rem; margin:.5rem 0; word-break:break-all; cursor:pointer; position:relative; border:1px solid var(--line-soft); }
+  .primer-seq:hover::after { content:"Copy"; position:absolute; right:6px; top:50%; transform:translateY(-50%); background:var(--navy); color:#e6eef5; font-size:.65rem; padding:2px 6px; border-radius:3px; }
+  .stat-row { display:flex; justify-content:space-between; align-items:center; font-size:.8rem; padding:.25rem 0; border-bottom:1px solid var(--line-soft); }
+  .stat-row:last-child { border-bottom:none; }
+  .stat-label { color:var(--ink-muted); }
+  .stat-val { color:var(--ink); font-weight:600; font-family:var(--mono); }
+  .badge-tm-good { background:rgba(16,185,129,.14); color:#86efac; border-radius:.25rem; padding:1px 6px; font-size:.75rem; }
+  .badge-tm-warn { background:rgba(245,158,11,.16); color:#fbbf24; border-radius:.25rem; padding:1px 6px; font-size:.75rem; }
+
+  /* ── Mutation diff ── */
+  .diff-block { background:var(--code-bg); border:1px solid var(--line); border-radius:.5rem; padding:.75rem 1rem; font-family:var(--mono); font-size:.82rem; margin-top:.75rem; }
+  .diff-original { color:#fca5a5; }
+  .diff-mutated  { color:#86efac; }
+  .diff-meta { font-size:.75rem; color:var(--ink-muted); margin-bottom:.3rem; }
+
+  /* ── Legend ── */
+  .legend { display:flex; flex-wrap:wrap; gap:.75rem; font-size:.75rem; color:var(--ink-muted); margin-bottom:1rem; align-items:center; }
+  .legend-item { display:flex; align-items:center; gap:.3rem; }
+  .legend-swatch { width:14px; height:14px; border-radius:2px; flex-shrink:0; }
+  .swatch-fwd { background:rgba(59,130,246,.30); border:1px solid var(--c-fwd); }
+  .swatch-rev { background:rgba(239,68,68,.32); border:1px solid var(--c-rev); }
+  .swatch-mut { background:rgba(245,158,11,.26); border:1px solid var(--c-mut); }
+
+  /* ── Context label ── */
+  .context-label { font-size:.72rem; color:var(--slate); margin:.5rem 0 .25rem; text-align:right; }
+
+  /* ── Insert preview ── */
+  .insert-preview { background:rgba(16,185,129,.10); border:1px solid rgba(16,185,129,.30); border-radius:.4rem; padding:.4rem .75rem; font-family:var(--mono); font-size:.8rem; color:#86efac; margin-top:.5rem; word-break:break-all; }
+
+  /* ── Result header ── */
+  .result-header { display:flex; align-items:center; gap:.75rem; margin-bottom:1rem; }
+  .result-badge { background:var(--cream-2); color:var(--navy); border-radius:.4rem; padding:.2rem .75rem; font-size:.78rem; font-weight:600; }
+
+  /* ── Mutation Library sidebar ── */
+  .lib-offcanvas { background:var(--paper); color:var(--ink-body); width:380px; border-right:1px solid var(--line); }
+  .lib-offcanvas .offcanvas-header { border-bottom:1px solid var(--line); }
+  .lib-offcanvas .offcanvas-title { font-family:var(--serif); color:var(--navy); }
+  .lib-help { font-size:.74rem; color:var(--ink-muted); line-height:1.4; margin:0 0 .4rem; }
+  .lib-search { background:#11202e; border:1px solid var(--line-cool); color:var(--ink-body); padding-left:2rem; }
+  .lib-search:focus { background:#11202e; color:var(--ink-body); border-color:var(--indigo); box-shadow:0 0 0 .15rem rgba(33,116,173,.15); }
+  .lib-search-ico { position:absolute; left:.6rem; top:50%; transform:translateY(-50%); color:var(--slate); font-size:.78rem; pointer-events:none; }
+  #libPosition { background:#11202e; border:1px solid var(--line-cool); color:var(--ink-body); }
+  #libPosition:focus { background:#11202e; color:var(--ink-body); border-color:var(--indigo); box-shadow:0 0 0 .15rem rgba(33,116,173,.15); }
+  .lib-tabs .nav-link { color:var(--ink-muted); font-size:.8rem; font-weight:600; padding:.35rem .8rem; }
+  .lib-tabs .nav-link.active { background:var(--navy); color:#e6eef5; }
+  .lib-list { max-height:calc(100vh - 320px); overflow-y:auto; display:flex; flex-direction:column; gap:.4rem; padding-right:.25rem; }
+  .lib-item { text-align:left; width:100%; background:#11202e; border:1px solid var(--line-cool); border-radius:.4rem; padding:.55rem .7rem; color:var(--ink-body); cursor:pointer; transition:border-color .15s, background-color .15s; }
+  .lib-item:hover { border-color:var(--indigo); background:#1e3447; }
+  .lib-item-top { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+  .lib-item-name { font-weight:700; font-size:.85rem; color:var(--navy); }
+  .lib-item-seq { font-family:var(--mono); font-size:.72rem; color:var(--indigo); margin-top:.2rem; word-break:break-all; }
+  .lib-item-enzyme .lib-item-seq { color:var(--clay); }
+  .lib-item-desc { font-size:.7rem; color:var(--ink-muted); margin-top:.25rem; line-height:1.35; }
+  .lib-badge { font-size:.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:.1rem .4rem; border-radius:.25rem; white-space:nowrap; }
+  .lib-badge-purification { background:rgba(33,116,173,.14); color:#a6c2db; }
+  .lib-badge-cleavage { background:rgba(16,185,129,.14); color:#86efac; }
+  .lib-badge-linker { background:rgba(163,123,120,.18); color:#b9cfe4; }
+  .lib-badge-combination { background:rgba(245,158,11,.16); color:#fbbf24; }
+  .lib-badge-silent { background:rgba(33,116,173,.18); color:#a6c2db; }
+  .lib-empty { text-align:center; color:var(--ink-muted); font-size:.8rem; padding:1rem; }
+
+  /* ── Quick Mutations ── */
+  .qm-seq { font-family:var(--mono); font-size:.72rem; color:var(--ink-muted); margin-top:.2rem; word-break:break-all; }
+  .qm-arrow { color:var(--ink-muted); padding:0 .25rem; }
+  .qm-changed { color:var(--c-mut); font-weight:700; }
+
+  /* ── Circular plasmid map ── */
+  .plasmid-wrap { display:flex; flex-direction:column; align-items:center; }
+  #plasmidSvg { max-width:340px; width:100%; height:auto; }
+  .plasmid-legend { display:flex; flex-wrap:wrap; gap:.75rem; justify-content:center; font-size:.72rem; color:var(--ink-muted); margin-top:.5rem; }
+  .plasmid-legend .legend-item { display:flex; align-items:center; gap:.3rem; }
+  .plasmid-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+</style>
+
+<div class="viz-page">
+
+  <!-- Page header -->
+  <div class="d-flex align-items-center mb-3">
+    
+    <div>
+      <h4 class="mb-0 fw-bold">Sequence Visualizer</h4>
+      <small class="text-muted">Design silent mutations or insertions and preview primers on your plasmid sequence</small>
+    </div>
+    <button class="btn btn-primary ms-auto fw-semibold" type="button"
+            data-bs-toggle="offcanvas" data-bs-target="#mutationLibrary" aria-controls="mutationLibrary">
+      <i class="fas fa-bars me-1"></i>Mutation Library
+    </button>
+  </div>
+
+  <!-- ── Mutation Library sidebar (offcanvas) ── -->
+  <div class="offcanvas offcanvas-start lib-offcanvas" tabindex="-1" id="mutationLibrary" aria-labelledby="mutationLibraryLabel">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title fw-bold" id="mutationLibraryLabel">
+        Mutation Library
+      </h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+
+      <p class="lib-help">Pick where to insert, then click any item — PEEK fills the form and designs the primers for you.</p>
+
+      <!-- Insert position -->
+      <label class="form-label fw-semibold" style="font-size:.8rem;">Insert at position</label>
+      <input type="number" id="libPosition" class="form-control form-control-sm mb-1" min="1"
+             placeholder="leave blank = middle of sequence">
+      <div class="lib-help mb-3" id="libPositionHint">The item is inserted just before this base (1-based).</div>
+
+      <!-- Search -->
+      <div class="position-relative mb-2">
+        <i class="fas fa-magnifying-glass lib-search-ico"></i>
+        <input type="text" id="libSearch" class="form-control form-control-sm lib-search"
+               placeholder="Search motifs or enzymes…" autocomplete="off">
+      </div>
+
+      <!-- Tabs -->
+      <ul class="nav nav-pills lib-tabs mb-2" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-motifs" type="button">
+            Motifs
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-enzymes" type="button">
+            Restriction Sites
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <!-- Motifs -->
+        <div class="tab-pane fade show active" id="tab-motifs" role="tabpanel">
+          <div class="lib-list" id="motifList">
+            {% for key, m in viz_motifs.items() %}
+            <button type="button" class="lib-item"
+                    data-kind="motif" data-type="aa"
+                    data-seq="{{ m.sequence }}" data-name="{{ m.name }}"
+                    data-search="{{ m.name|lower }} {{ m.category|lower }} {{ m.sequence|lower }} {{ m.description|lower }}"
+                    onclick="insertFromLibrary(this)">
+              <div class="lib-item-top">
+                <span class="lib-item-name">{{ m.name }}</span>
+                <span class="lib-badge lib-badge-{{ m.category }}">{{ m.category }}</span>
+              </div>
+              <div class="lib-item-seq">{{ m.sequence }}</div>
+              <div class="lib-item-desc">{{ m.description }}</div>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Restriction sites -->
+        <div class="tab-pane fade" id="tab-enzymes" role="tabpanel">
+          <div class="lib-help mb-2">Inserts the enzyme's recognition site as DNA at your chosen position.</div>
+          <div class="lib-list" id="enzymeList">
+            {% for name, site in viz_enzymes %}
+            <button type="button" class="lib-item lib-item-enzyme"
+                    data-kind="enzyme" data-type="dna"
+                    data-seq="{{ site }}" data-name="{{ name }}"
+                    data-search="{{ name|lower }} {{ site|lower }}"
+                    onclick="insertFromLibrary(this)">
+              <div class="lib-item-top">
+                <span class="lib-item-name">{{ name }}</span>
+                <span class="lib-item-seq mb-0">{{ site }}</span>
+              </div>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="lib-empty" id="libEmpty" style="display:none;">No matches — try another search.</div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Left: Input form -->
+    <div class="col-lg-5">
+      <div class="panel">
+        <div class="panel-title">Inputs</div>
+
+        <form method="POST" id="vizForm">
+          <!-- Mode tabs -->
+          <div class="mode-tabs" id="modeTabs">
+            <div class="mode-tab {% if mode not in ('insertion','primers','amplify') %}active{% endif %}" data-mode="sdm" onclick="setMode('sdm',this)">
+              Silent Mutation
+            </div>
+            <div class="mode-tab {% if mode == 'insertion' %}active{% endif %}" data-mode="insertion" onclick="setMode('insertion',this)">
+              Insertion
+            </div>
+            <div class="mode-tab {% if mode == 'primers' %}active{% endif %}" data-mode="primers" onclick="setMode('primers',this)">
+              From Primers
+            </div>
+            <div class="mode-tab {% if mode == 'amplify' %}active{% endif %}" data-mode="amplify" onclick="setMode('amplify',this)">
+              Indels
+            </div>
+          </div>
+          <input type="hidden" name="mode" id="modeInput" value="{{ mode or 'sdm' }}">
+
+          <!-- DNA sequence -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.85rem;">Plasmid / Template Sequence <span class="text-danger">*</span></label>
+            <textarea name="dna" id="dnaInput" class="form-control font-monospace"
+                      rows="5" placeholder="Paste your DNA sequence here (A, T, C, G only)"
+                      style="font-size:.75rem;">{{ dna or '' }}</textarea>
+            {% if dna %}
+            <div class="mt-1" style="font-size:.72rem;color:#8ea4ba;">{{ dna|length }} bp</div>
+            {% endif %}
+          </div>
+
+          <!-- SDM fields -->
+          <div id="sdmFields" {% if mode and mode != 'sdm' %}style="display:none"{% endif %}>
+            <div class="mb-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Original window <span class="text-danger">*</span></label>
+              <input type="text" name="original_window" class="form-control font-monospace" style="font-size:.8rem;"
+                     value="{{ original_window or '' }}"
+                     placeholder="e.g. ATGCAA (exact substring of your sequence)">
+              <div class="form-text" style="font-size:.72rem;">Must be an exact substring found in your plasmid</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Mutated window <span class="text-danger">*</span></label>
+              <input type="text" name="mutated_window" class="form-control font-monospace" style="font-size:.8rem;"
+                     value="{{ mutated_window or '' }}"
+                     placeholder="Same length, with silent changes">
+              <div class="form-text" style="font-size:.72rem;">Same length as original; changed bases encode the same amino acids</div>
+            </div>
+          </div>
+
+          <!-- From Primers fields -->
+          <div id="primersFields" {% if mode != 'primers' %}style="display:none"{% endif %}>
+            <div class="mb-1" style="background:#0b1722;border:1px solid #1e3447;border-radius:.5rem;padding:.6rem .9rem;font-size:.75rem;color:#a6c2db;">
+              
+              Paste primer sequences exactly as output from <strong>Silent Mutations</strong> or <strong>Primer Design</strong> tabs. Forward primer must match the top strand (5'→3'); reverse primer will be automatically reverse-complemented to locate its binding site.
+            </div>
+            <div class="mb-2 mt-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Forward Primer (5'→3')</label>
+              <input type="text" name="fwd_primer_input" class="form-control font-monospace" style="font-size:.8rem;"
+                     value="{{ fwd_primer_input or '' }}"
+                     placeholder="e.g. ATGCGTAAACCTTAG...">
+              <div class="form-text" style="font-size:.72rem;">Paste the fwd primer sequence as shown in PEEK output</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Reverse Primer (5'→3')</label>
+              <input type="text" name="rev_primer_input" class="form-control font-monospace" style="font-size:.8rem;"
+                     value="{{ rev_primer_input or '' }}"
+                     placeholder="e.g. GCCAATTTCGAGCTA...">
+              <div class="form-text" style="font-size:.72rem;">Paste the rev primer as-is (5'→3'); PEEK will find where it binds automatically</div>
+            </div>
+          </div>
+
+          <!-- Indels fields -->
+          <div id="amplifyFields" {% if mode != 'amplify' %}style="display:none"{% endif %}>
+            <div class="mb-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Operation</label>
+              <div class="d-flex gap-3" style="font-size:.8rem;">
+                <label class="d-flex align-items-center gap-1 mb-0">
+                  <input type="radio" name="operation" value="amplify" id="opAmplify" {% if operation != 'delete' %}checked{% endif %}> Amplify region
+                </label>
+                <label class="d-flex align-items-center gap-1 mb-0">
+                  <input type="radio" name="operation" value="delete" id="opDelete" {% if operation == 'delete' %}checked{% endif %}> Leave out region
+                </label>
+              </div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Target region sequence <span class="text-danger">*</span></label>
+              <textarea name="insert_amplify_seq" id="insertAmplifySeqInput" class="form-control font-monospace" rows="2" style="font-size:.8rem;"
+                        placeholder="Exact substring of the sequence above">{{ insert_amplify_seq or '' }}</textarea>
+              <div class="form-text" style="font-size:.72rem;" id="vizTargetHint">The region to amplify — must be an exact substring of the sequence above</div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Primer placement</label>
+              <div class="d-flex gap-3" style="font-size:.8rem;">
+                <label class="d-flex align-items-center gap-1 mb-0">
+                  <input type="radio" name="tolerance_mode" value="edge" id="ampEdge" {% if tolerance_mode != 'tolerant' %}checked{% endif %}> Edge
+                </label>
+                <label class="d-flex align-items-center gap-1 mb-0">
+                  <input type="radio" name="tolerance_mode" value="tolerant" id="ampTolerant" {% if tolerance_mode == 'tolerant' %}checked{% endif %}> Tolerant
+                </label>
+              </div>
+              <div class="form-text" style="font-size:.72rem;" id="vizPlacementHint">Edge: primers start exactly at the region boundaries. Tolerant: both primers move outward into the flank by the same amount.</div>
+            </div>
+            <div class="mb-3" id="ampToleranceBpWrap" {% if tolerance_mode != 'tolerant' %}style="display:none"{% endif %}>
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Tolerance (bp)</label>
+              <input type="number" name="tolerance_bp" id="ampToleranceBp" class="form-control" style="font-size:.8rem;"
+                     value="{{ tolerance_bp or '30' }}" min="0" max="500">
+            </div>
+          </div>
+
+          <!-- Insertion fields -->
+          <div id="insertionFields" {% if mode != 'insertion' %}style="display:none"{% endif %}>
+            <div class="mb-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Insertion position <span class="text-danger">*</span></label>
+              <input type="number" name="position" class="form-control" style="font-size:.8rem;"
+                     value="{{ position or '' }}" placeholder="1-based position" min="1">
+              <div class="form-text" style="font-size:.72rem;">Insert will be placed before this position in the sequence</div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Insert type</label>
+              <select name="insert_type" id="insertTypeSelect" class="form-select" style="font-size:.8rem;" onchange="updateInsertPlaceholder()">
+                <option value="dna" {% if insert_type == 'dna' or not insert_type %}selected{% endif %}>DNA sequence</option>
+                <option value="aa"  {% if insert_type == 'aa' %}selected{% endif %}>Amino acid sequence</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" style="font-size:.85rem;">Insert sequence <span class="text-danger">*</span></label>
+              <input type="text" name="insert_seq" id="insertSeqInput" class="form-control font-monospace" style="font-size:.8rem;"
+                     value="{{ insert_seq or '' }}" placeholder="DNA or AA sequence to insert">
+            </div>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PEEK.loadExample()">Load example</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PEEK.clearForm()">Clear fields</button>
+          </div>
+          <div class="text-muted mb-2" style="font-size:.78rem;">New here? Load an example to see how PEEK works.</div>
+
+          <button type="submit" class="btn btn-primary w-100 fw-semibold">
+            Visualize &amp; Design Primers
+          </button>
+        </form>
+      </div>
+
+      <!-- Quick Mutations: pulled from the other PEEK tabs -->
+      <div class="panel" id="quickMutPanel">
+        <div class="panel-title">Quick Mutations</div>
+        <p class="lib-help" style="margin-bottom:.7rem;">Pull a result from another PEEK tab — choose one to load its inputs &amp; visualize.</p>
+
+        <div class="mb-2">
+          <label class="form-label fw-semibold" style="font-size:.8rem;margin-bottom:.2rem;">
+            Silent mutation <span class="text-muted" style="font-weight:400;">— Silent Mutation Generator</span>
+          </label>
+          <select id="qmSilentSelect" class="form-select form-select-sm" onchange="applyQuickSilent(this)">
+            <option value="">— no silent mutations yet —</option>
+          </select>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label fw-semibold" style="font-size:.8rem;margin-bottom:.2rem;">
+            Enzyme insertion <span class="text-muted" style="font-weight:400;">— Primer Design</span>
+          </label>
+          <select id="qmEnzymeSelect" class="form-select form-select-sm" onchange="applyQuickEnzyme(this)">
+            <option value="">— no enzyme insertions yet —</option>
+          </select>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label fw-semibold" style="font-size:.8rem;margin-bottom:.2rem;">
+            Amino acid insertion <span class="text-muted" style="font-weight:400;">— Primer Design</span>
+          </label>
+          <select id="qmAASelect" class="form-select form-select-sm" onchange="applyQuickAA(this)">
+            <option value="">— no amino acid insertions yet —</option>
+          </select>
+        </div>
+
+        <div class="mb-1">
+          <label class="form-label fw-semibold" style="font-size:.8rem;margin-bottom:.2rem;">
+            Indel primers <span class="text-muted" style="font-weight:400;">— Primer Design</span>
+          </label>
+          <select id="qmAmplifySelect" class="form-select form-select-sm" onchange="applyQuickAmplify(this)">
+            <option value="">— no indel primers yet —</option>
+          </select>
+        </div>
+
+        <div class="lib-empty" id="quickMutEmpty" style="margin-top:.6rem;">Run a mutation on the <strong>Silent Mutations</strong> or <strong>Primer Design</strong> tab — results show up here.</div>
+      </div>
+
+      <!-- Tips panel -->
+      {% if not success %}
+      <div class="panel" style="border-color:#1e3447;">
+        <div class="panel-title">How to use</div>
+        <ul style="font-size:.8rem;color:#8ea4ba;padding-left:1.2rem;margin:0;">
+          <li class="mb-1"><strong>From Primers</strong> (easiest): paste primers you already designed from the other PEEK tabs — the viewer will find where they bind and draw them on the sequence.</li>
+          <li class="mb-1"><strong>Silent Mutation:</strong> copy the codon region you want to change as the <em>original window</em>, paste the synonymous version as the <em>mutated window</em>.</li>
+          <li class="mb-1"><strong>Insertion:</strong> pick the position (1-based) where you want to insert extra DNA or amino acids.</li>
+          <li class="mb-1">Primers are designed using <strong>Q5 polymerase / NEB rules</strong> targeting 60-70 °C.</li>
+          <li>Highlighted bases show where each primer binds (<span style="color:#3b82f6;">blue = forward</span>, <span style="color:#ef4444;">red = reverse</span>) and where changes occur (amber).</li>
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Right: Results -->
+    <div class="col-lg-7">
+      <!-- Persisted across navigation: stays visible until the next run. -->
+      <div id="peekResults" data-peek-page="visualizer">
+      {% if success and viz_rows %}
+
+      <!-- Circular plasmid map -->
+      <div class="panel mb-3">
+        <div class="panel-title">Plasmid Map</div>
+        <div class="plasmid-wrap">
+          <svg id="plasmidSvg" viewBox="0 0 320 320" role="img" aria-label="Circular plasmid map"></svg>
+          <div class="plasmid-legend">
+            <div class="legend-item"><span class="plasmid-dot" style="background:#f59e0b;"></span>Mutation / insert</div>
+            <div class="legend-item"><span class="plasmid-dot" style="background:#3b82f6;"></span>Forward primer</div>
+            <div class="legend-item"><span class="plasmid-dot" style="background:#ef4444;"></span>Reverse primer</div>
+          </div>
+        </div>
+        <!-- Data island consumed by the circular-map renderer -->
+        <script type="application/json" id="plasmidData">
+          {
+            "seqLen": {{ (mutated_dna or dna)|length }},
+            "mutStart": {{ mutation_start_0 if mutation_start_0 is not none else 'null' }},
+            "mutEnd": {{ mutation_end_0 if mutation_end_0 is not none else 'null' }},
+            "fwdStart": {{ fwd_start_0 if fwd_start_0 is not none else 'null' }},
+            "fwdEnd": {{ fwd_end_0 if fwd_end_0 is not none else 'null' }},
+            "revStart": {{ rev_start_0 if rev_start_0 is not none else 'null' }},
+            "revEnd": {{ rev_end_0 if rev_end_0 is not none else 'null' }},
+            "mode": "{{ mode }}"
+          }
+        </script>
+      </div>
+
+      <!-- Mutation summary -->
+      <div class="panel mb-3">
+        <div class="result-header">
+          <i class="fas fa-check-circle" style="color:#10b981;font-size:1.1rem;"></i>
+          <span class="fw-semibold">
+            {% if mode == 'sdm' %}Silent Mutation — SDM Primer Design
+            {% elif mode == 'insertion' %}Insertion Primer Design
+            {% elif mode == 'amplify' and primer_result and primer_result.operation == 'delete' %}Deletion Primer Design
+            {% elif mode == 'amplify' %}PCR Amplification Primer Design
+            {% else %}Primer Binding Visualizer{% endif %}
+          </span>
+          <span class="result-badge ms-auto">
+            {{ dna|length }} bp sequence
+          </span>
+        </div>
+
+        {% if primer_result %}
+          {% if mode == 'sdm' %}
+          <div class="diff-block">
+            <div class="diff-meta">Mutation at position {{ primer_result.mutation_start }}–{{ primer_result.mutation_end }}</div>
+            <div class="diff-original">− {{ primer_result.original_seq }}</div>
+            <div class="diff-mutated">+ {{ primer_result.mutated_seq }}</div>
+          </div>
+          {% elif mode == 'insertion' %}
+          {% if insert_label %}
+          <div class="insert-preview">{{ insert_label }}</div>
+          {% endif %}
+          {% elif mode == 'primers' %}
+          <div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.5rem;">
+            {% if fwd_start_0 is not none %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Fwd binds:</span>
+              <span style="color:#3b82f6;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ fwd_start_0 + 1 }}–{{ fwd_end_0 }}</span>
+            </div>
+            {% endif %}
+            {% if rev_start_0 is not none %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Rev binds:</span>
+              <span style="color:#ef4444;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ rev_start_0 + 1 }}–{{ rev_end_0 }}</span>
+            </div>
+            {% endif %}
+            {% if primer_result.amplicon_len %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Amplicon:</span>
+              <span style="color:#4a9fd4;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ primer_result.amplicon_len }} bp</span>
+            </div>
+            {% endif %}
+          </div>
+          {% elif mode == 'amplify' %}
+          {% if insert_label %}
+          <div class="insert-preview">{{ insert_label }}</div>
+          {% endif %}
+          <div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.5rem;">
+            {% if fwd_start_0 is not none %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Fwd binds:</span>
+              <span style="color:#3b82f6;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ fwd_start_0 + 1 }}–{{ fwd_end_0 }}</span>
+            </div>
+            {% endif %}
+            {% if rev_start_0 is not none %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Rev binds:</span>
+              <span style="color:#ef4444;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ rev_start_0 + 1 }}–{{ rev_end_0 }}</span>
+            </div>
+            {% endif %}
+            {% if mutation_start_0 is not none %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">{% if primer_result.operation == 'delete' %}Removed{% else %}Insert{% endif %}:</span>
+              <span style="color:#f59e0b;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ mutation_start_0 + 1 }}–{{ mutation_end_0 }}</span>
+            </div>
+            {% endif %}
+            {% if primer_result.operation == 'delete' %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Region removed:</span>
+              <span style="color:#4a9fd4;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ primer_result.deletion_size }} bp</span>
+            </div>
+            {% elif primer_result.amplicon_len %}
+            <div style="background:#0b1722;border:1px solid #1e3447;border-radius:.4rem;padding:.35rem .75rem;font-size:.78rem;">
+              <span style="color:#8ea4ba;">Amplicon:</span>
+              <span style="color:#4a9fd4;font-weight:600;font-family:monospace;margin-left:.3rem;">{{ primer_result.amplicon_len }} bp</span>
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      <!-- Sequence viewer -->
+      <div class="panel p-0 overflow-hidden">
+        <div style="padding:.75rem 1rem .25rem;border-bottom:1px solid #1e3447;background:#0b1722;border-radius:.75rem .75rem 0 0;">
+          <div class="d-flex align-items-center gap-3">
+            <span style="font-size:.78rem;font-weight:700;color:#4a9fd4;letter-spacing:.08em;text-transform:uppercase;">
+              Sequence Map
+            </span>
+            <span style="font-size:.7rem;color:#7a93ad;">showing region around mutation/insertion</span>
+          </div>
+          <!-- Legend -->
+          <div class="legend mt-2">
+            <div class="legend-item">
+              <div class="legend-swatch swatch-fwd"></div>
+              <span>Forward primer</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-swatch swatch-rev"></div>
+              <span>Reverse primer</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-swatch swatch-mut"></div>
+              <span>Mutation / insert site</span>
+            </div>
+            <div class="legend-item ms-1">
+              <span class="nt nt-a">A</span><span class="nt nt-t">T</span><span class="nt nt-g">G</span><span class="nt nt-c">C</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="seq-viewer">
+          {% for row in viz_rows %}
+          <div class="seq-row-wrapper" id="row-{{ row.start }}">
+
+            <!-- Forward primer annotation bar (pixel-aligned) -->
+            <div class="primer-track">
+              {% if row.fwd_bar %}
+              <div class="primer-bar primer-bar-fwd"
+                   style="position:absolute;left:{{ row.fwd_bar.left_px }}px;width:{{ row.fwd_bar.width_px }}px;top:0;height:100%;">
+                {% if row.fwd_bar.is_start %}
+                <span class="primer-bar-label">▶ Fwd</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+
+            <!-- Ruler: absolute-positioned tick labels -->
+            <div class="ruler-row" style="position:relative;height:14px;">
+              {% for tick in row.ruler_ticks %}
+              <span class="ruler-tick-label" style="position:absolute;left:{{ tick.px }}px;">{{ tick.pos }}</span>
+              {% endfor %}
+            </div>
+
+            <!-- 5'→3' top strand -->
+            <div class="strand-line">
+              <div class="strand-label">5'</div>
+              <div class="strand-dir">→</div>
+              {% for nt in row.nts %}
+              <span class="nt nt-{{ nt.base|lower }}{% if nt.in_fwd %} in-fwd{% endif %}{% if nt.in_mut %} in-mut{% endif %}{% if nt.changed %} changed{% endif %}{% if nt.in_rev %} in-rev{% endif %}"
+                    title="Pos {{ nt.pos }}: {{ nt.base }}{% if nt.changed %} → {{ nt.mut_base }}{% endif %}">{{ nt.base }}</span>
+              {% endfor %}
+              <div class="strand-end-label">3'</div>
+            </div>
+
+            <!-- 3'→5' bottom strand (complement) -->
+            <div class="strand-line">
+              <div class="strand-label">3'</div>
+              <div class="strand-dir" style="color:#6b819a;">←</div>
+              {% for nt in row.comp_nts %}
+              <span class="nt nt-{{ nt.base|lower }}{% if nt.in_rev %} in-rev{% endif %}{% if nt.in_mut %} in-mut{% endif %}"
+                    title="Pos {{ nt.pos }}: {{ nt.base }} (complement)">{{ nt.base }}</span>
+              {% endfor %}
+              <div class="strand-end-label" style="color:#6b819a;">5'</div>
+            </div>
+
+            <!-- Reverse primer annotation bar (pixel-aligned) -->
+            <div class="primer-track" style="margin-top:1px;">
+              {% if row.rev_bar %}
+              <div class="primer-bar primer-bar-rev"
+                   style="position:absolute;left:{{ row.rev_bar.left_px }}px;width:{{ row.rev_bar.width_px }}px;top:0;height:100%;">
+                {% if row.rev_bar.is_end %}
+                <span class="primer-bar-label" style="margin-left:auto;">Rev ◀</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Primer stats -->
+      {% if primer_result %}
+      <div class="panel mt-3">
+        <div class="panel-title">Primer Details</div>
+
+        <div class="primer-stats">
+          <!-- Forward primer -->
+          {% if primer_result.f_primer %}
+          <div class="primer-card primer-card-fwd">
+            <div class="fw-semibold mb-1" style="font-size:.82rem;color:#3b82f6;">
+              <i class="fas fa-arrow-right me-1"></i>Forward Primer (5'→3')
+            </div>
+            <div class="primer-seq" onclick="copyText(this)" title="Click to copy">
+              {{ primer_result.f_primer }}
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Length</span>
+              <span class="stat-val">{{ primer_result.f_primer|length }} nt</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Tm (NEB)</span>
+              <span class="stat-val">
+                <span class="badge-tm-{% if primer_result.f_tm >= 60 and primer_result.f_tm <= 70 %}good{% else %}warn{% endif %}">
+                  {{ primer_result.f_tm }} °C
+                </span>
+                {% if primer_result.f_tm > 72 %}
+                <span style="color:#f59e0b;font-size:.7rem;display:block;margin-top:2px;">
+                  &#9888; Exceeds 72°C NEB Q5 max — consider shortening
+                </span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">GC%</span>
+              <span class="stat-val">{{ primer_result.f_gc }}%</span>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- Reverse primer -->
+          {% if primer_result.r_primer %}
+          <div class="primer-card primer-card-rev">
+            <div class="fw-semibold mb-1" style="font-size:.82rem;color:#ef4444;">
+              <i class="fas fa-arrow-left me-1"></i>Reverse Primer (5'→3')
+            </div>
+            <div class="primer-seq" onclick="copyText(this)" title="Click to copy">
+              {{ primer_result.r_primer }}
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Length</span>
+              <span class="stat-val">{{ primer_result.r_primer|length }} nt</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Tm (NEB)</span>
+              <span class="stat-val">
+                <span class="badge-tm-{% if primer_result.r_tm >= 60 and primer_result.r_tm <= 70 %}good{% else %}warn{% endif %}">
+                  {{ primer_result.r_tm }} °C
+                </span>
+                {% if primer_result.r_tm > 72 %}
+                <span style="color:#f59e0b;font-size:.7rem;display:block;margin-top:2px;">
+                  &#9888; Exceeds 72°C NEB Q5 max — consider shortening
+                </span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">GC%</span>
+              <span class="stat-val">{{ primer_result.r_gc }}%</span>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Combined stats -->
+        {% if primer_result.f_primer and primer_result.r_primer %}
+        <div class="mt-3" style="background:#0b1722;border:1px solid #1e3447;border-radius:.5rem;padding:.75rem 1rem;">
+          <div class="row g-2 text-center">
+            <div class="col-3">
+              <div style="font-size:.72rem;color:#8ea4ba;">Avg Tm</div>
+              <div class="fw-bold" style="color:#4a9fd4;font-size:.95rem;">{{ primer_result.avg_tm }} °C</div>
+            </div>
+            <div class="col-3">
+              <div style="font-size:.72rem;color:#8ea4ba;">ΔTm</div>
+              <div class="fw-bold" style="color:{% if primer_result.tm_diff <= 3 %}#10b981{% elif primer_result.tm_diff <= 5 %}#f59e0b{% else %}#7a93ad{% endif %};font-size:.95rem;">
+                {{ primer_result.tm_diff }} °C
+              </div>
+            </div>
+            <div class="col-3">
+              <div style="font-size:.72rem;color:#8ea4ba;">Q5 Anneal</div>
+              <div class="fw-bold" style="color:#f59e0b;font-size:.95rem;">
+                {% if primer_result.recommended_anneal %}{{ primer_result.recommended_anneal }} °C{% else %}—{% endif %}
+              </div>
+            </div>
+            <div class="col-3">
+              {% if primer_result.operation == 'delete' %}
+              <div style="font-size:.72rem;color:#8ea4ba;">Removed</div>
+              <div class="fw-bold" style="color:{% if primer_result.deletion_size %}#10b981{% else %}#7a93ad{% endif %};font-size:.95rem;">
+                {% if primer_result.deletion_size %}{{ primer_result.deletion_size }} bp{% else %}—{% endif %}
+              </div>
+              {% else %}
+              <div style="font-size:.72rem;color:#8ea4ba;">Amplicon</div>
+              <div class="fw-bold" style="color:{% if primer_result.amplicon_len %}#10b981{% else %}#7a93ad{% endif %};font-size:.95rem;">
+                {% if primer_result.amplicon_len %}{{ primer_result.amplicon_len }} bp{% else %}—{% endif %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% endif %}
+      </div><!-- /#peekResults -->
+
+      <!-- Empty state (hidden once results are present or restored) -->
+      <div id="peekEmptyState" {% if success and viz_rows %}style="display:none;"{% endif %}>
+        <div class="panel d-flex flex-column align-items-center justify-content-center text-center" style="min-height:360px;border-style:dashed;">
+          <div style="width:72px;height:72px;background:linear-gradient(135deg,#1e3447,#11202e);border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:1rem;">
+            <i class="fas fa-dna" style="font-size:1.8rem;color:#4a9fd4;"></i>
+          </div>
+          <h5 class="fw-semibold mb-1">No results yet</h5>
+          <p class="text-muted mb-0" style="font-size:.85rem;max-width:300px;">
+            Paste your plasmid sequence, configure a mutation or insertion, and click <em>Visualize &amp; Design Primers</em>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function setMode(mode, el) {
+    document.getElementById('modeInput').value = mode;
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('sdmFields').style.display       = mode === 'sdm'       ? '' : 'none';
+    document.getElementById('insertionFields').style.display  = mode === 'insertion' ? '' : 'none';
+    document.getElementById('primersFields').style.display    = mode === 'primers'   ? '' : 'none';
+    document.getElementById('amplifyFields').style.display    = mode === 'amplify'   ? '' : 'none';
+  }
+
+  document.querySelectorAll('input[name="tolerance_mode"]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      var wrap = document.getElementById('ampToleranceBpWrap');
+      if (wrap) wrap.style.display = this.value === 'tolerant' ? '' : 'none';
+    });
+  });
+
+  function updateIndelVizHints() {
+    var opEl = document.querySelector('input[name="operation"]:checked');
+    var isDelete = opEl && opEl.value === 'delete';
+    var targetHint = document.getElementById('vizTargetHint');
+    if (targetHint) targetHint.textContent = isDelete
+      ? 'The region to leave out — must be an exact substring of the sequence above'
+      : 'The region to amplify — must be an exact substring of the sequence above';
+    var placementHint = document.getElementById('vizPlacementHint');
+    if (placementHint) placementHint.textContent = isDelete
+      ? 'Edge: primers start exactly at the region boundaries, pointing outward. Tolerant: both primers move further out, removing extra flanking sequence.'
+      : 'Edge: primers start exactly at the region boundaries. Tolerant: both primers move outward into the flank by the same amount.';
+  }
+  document.querySelectorAll('input[name="operation"]').forEach(function (radio) {
+    radio.addEventListener('change', updateIndelVizHints);
+  });
+  document.addEventListener('DOMContentLoaded', updateIndelVizHints);
+
+  function updateInsertPlaceholder() {
+    var sel = document.getElementById('insertTypeSelect').value;
+    var inp = document.getElementById('insertSeqInput');
+    inp.placeholder = sel === 'aa' ? 'e.g. MAST (amino acids)' : 'e.g. ATGCGT (DNA bases)';
+  }
+
+  function copyText(el) {
+    var text = el.innerText.trim();
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = el.style.outline;
+      el.style.outline = '2px solid #4a9fd4';
+      setTimeout(function(){ el.style.outline = orig; }, 700);
+    });
+  }
+
+  updateInsertPlaceholder();
+
+  /* ── Quick Mutations: dropdowns fed by the other PEEK tabs ── */
+  var qmSilentItems = [], qmEnzymeItems = [], qmAAItems = [], qmAmplifyItems = [];
+
+  function qmReadStore(key) {
+    try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }
+    catch (e) { return null; }
+  }
+  // Rebuild a <select> from a list of items; returns the item count.
+  function qmFill(sel, labels, items, labelOf) {
+    if (!sel) return 0;
+    sel.innerHTML = '';
+    var first = document.createElement('option');
+    first.value = '';
+    first.textContent = items.length ? labels.choose : labels.empty;
+    sel.appendChild(first);
+    items.forEach(function (it, i) {
+      var o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = labelOf(it, i);
+      sel.appendChild(o);
+    });
+    return items.length;
+  }
+  function renderQuickMutations() {
+    var sData = qmReadStore('peek:silentMutations');
+    var sDna = (sData && sData.dna) || '';
+    qmSilentItems = ((sData && sData.items) || []).map(function (it) {
+      return { original: it.original, mutated: it.mutated, dna: sDna, enzyme: it.enzyme, rank: it.rank };
+    });
+    qmEnzymeItems = ((qmReadStore('peek:enzymeInsertions') || {}).items) || [];
+    qmAAItems = ((qmReadStore('peek:aaInsertions') || {}).items) || [];
+    qmAmplifyItems = ((qmReadStore('peek:ampInsertions') || {}).items) || [];
+
+    var n = 0;
+    n += qmFill(document.getElementById('qmSilentSelect'),
+      { choose: '— choose a silent mutation —', empty: '— no silent mutations yet —' },
+      qmSilentItems,
+      function (it, i) { return (it.enzyme ? it.enzyme + ': ' : ('Variant ' + (i + 1) + ': ')) + it.original + ' → ' + it.mutated; });
+
+    n += qmFill(document.getElementById('qmEnzymeSelect'),
+      { choose: '— choose an enzyme insertion —', empty: '— no enzyme insertions yet —' },
+      qmEnzymeItems,
+      function (it) { return (it.enzyme || 'Enzyme') + ' (' + it.site + ') @ pos ' + it.position; });
+
+    n += qmFill(document.getElementById('qmAASelect'),
+      { choose: '— choose an amino acid insertion —', empty: '— no amino acid insertions yet —' },
+      qmAAItems,
+      function (it) { return (it.insert_type === 'dna' ? '[DNA] ' : '[AA] ') + it.aa + ' @ pos ' + it.position; });
+
+    n += qmFill(document.getElementById('qmAmplifySelect'),
+      { choose: '— choose an indel primer set —', empty: '— no indel primers yet —' },
+      qmAmplifyItems,
+      function (it) {
+        var seq = it.insert_seq || '';
+        var short = seq.length > 24 ? seq.slice(0, 24) + '…' : seq;
+        var op = it.operation === 'delete' ? 'delete' : 'amplify';
+        return op + ': ' + short + ' (' + (it.tolerance_mode === 'tolerant' ? 'tolerant +' + it.tolerance_bp + 'bp' : 'edge') + ')';
+      });
+
+    var empty = document.getElementById('quickMutEmpty');
+    if (empty) empty.style.display = n ? 'none' : '';
+  }
+
+  // Shared helpers for loading a quick mutation into the main form.
+  function qmSetDna(dna) {
+    var dnaInput = document.getElementById('dnaInput');
+    if (dna && dnaInput) { dnaInput.value = dna; dnaInput.dispatchEvent(new Event('input', { bubbles: true })); }
+  }
+  function qmSetField(selector, value) {
+    var el = document.querySelector(selector);
+    if (el) { el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); }
+  }
+
+  function applyQuickSilent(sel) {
+    var it = qmSilentItems[sel.value];
+    if (!it) return;
+    var tab = document.querySelector('.mode-tab[data-mode="sdm"]');
+    if (tab) setMode('sdm', tab);
+    qmSetDna(it.dna);
+    qmSetField('input[name="original_window"]', it.original);
+    qmSetField('input[name="mutated_window"]', it.mutated);
+    document.getElementById('vizForm').submit();
+  }
+  function applyQuickEnzyme(sel) {
+    var it = qmEnzymeItems[sel.value];
+    if (!it) return;
+    var tab = document.querySelector('.mode-tab[data-mode="insertion"]');
+    if (tab) setMode('insertion', tab);
+    qmSetDna(it.dna);
+    var ts = document.querySelector('select[name="insert_type"]');
+    if (ts) ts.value = 'dna';
+    updateInsertPlaceholder();
+    qmSetField('input[name="position"]', it.position);
+    qmSetField('#insertSeqInput', it.site);
+    document.getElementById('vizForm').submit();
+  }
+  function applyQuickAA(sel) {
+    var it = qmAAItems[sel.value];
+    if (!it) return;
+    var tab = document.querySelector('.mode-tab[data-mode="insertion"]');
+    if (tab) setMode('insertion', tab);
+    qmSetDna(it.dna);
+    var ts = document.querySelector('select[name="insert_type"]');
+    if (ts) ts.value = it.insert_type === 'dna' ? 'dna' : 'aa';
+    updateInsertPlaceholder();
+    qmSetField('input[name="position"]', it.position);
+    qmSetField('#insertSeqInput', it.aa);
+    document.getElementById('vizForm').submit();
+  }
+  function applyQuickAmplify(sel) {
+    var it = qmAmplifyItems[sel.value];
+    if (!it) return;
+    var tab = document.querySelector('.mode-tab[data-mode="amplify"]');
+    if (tab) setMode('amplify', tab);
+    qmSetDna(it.dna);
+    qmSetField('#insertAmplifySeqInput', it.insert_seq);
+    var op = it.operation === 'delete' ? 'delete' : 'amplify';
+    var opRadio = document.querySelector('input[name="operation"][value="' + op + '"]');
+    if (opRadio) { opRadio.checked = true; opRadio.dispatchEvent(new Event('change', { bubbles: true })); }
+    var mode = it.tolerance_mode === 'tolerant' ? 'tolerant' : 'edge';
+    var radio = document.querySelector('input[name="tolerance_mode"][value="' + mode + '"]');
+    if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change', { bubbles: true })); }
+    if (mode === 'tolerant') qmSetField('#ampToleranceBp', it.tolerance_bp || 30);
+    document.getElementById('vizForm').submit();
+  }
+  document.addEventListener('DOMContentLoaded', renderQuickMutations);
+
+  /* ── Keep the active mode tab across navigation (don't reset to Silent Mutation) ── */
+  (function () {
+    var KEY = 'peek:viz:mode';
+    var form = document.getElementById('vizForm');
+    if (form) {
+      form.addEventListener('submit', function () {
+        try { localStorage.setItem(KEY, document.getElementById('modeInput').value); } catch (e) { /* ignore */ }
+      });
+    }
+    if (!window.PEEK_DID_POST) {
+      var m = null;
+      try { m = localStorage.getItem(KEY); } catch (e) { m = null; }
+      if (m) {
+        var tab = document.querySelector('.mode-tab[data-mode="' + m + '"]');
+        if (tab) setMode(m, tab);
+      }
+    }
+  })();
+
+  /* ── Mutation Library: click an item → fill the form → design primers ── */
+  function insertFromLibrary(el) {
+    var dna = (document.getElementById('dnaInput').value || '').toUpperCase().replace(/[^ATCG]/g, '');
+    if (!dna) {
+      alert('Paste your plasmid / template sequence first, then pick a mutation.');
+      document.getElementById('dnaInput').focus();
+      return;
+    }
+
+    // Resolve insert position: use the field, else the middle of the sequence.
+    var posField = document.getElementById('libPosition');
+    var pos = parseInt(posField.value, 10);
+    if (isNaN(pos) || pos < 1) {
+      pos = Math.max(1, Math.round(dna.length / 2));
+    }
+    if (pos > dna.length) pos = dna.length;
+
+    var seq  = el.getAttribute('data-seq');
+    var type = el.getAttribute('data-type'); // 'aa' or 'dna'
+
+    // Switch the main form into Insertion mode and fill its fields.
+    var insertionTab = document.querySelector('.mode-tab[data-mode="insertion"]');
+    setMode('insertion', insertionTab);
+    document.querySelector('select[name="insert_type"]').value = type;
+    updateInsertPlaceholder();
+    document.getElementById('insertSeqInput').value = seq;
+    document.querySelector('input[name="position"]').value = pos;
+
+    // Close the sidebar, then submit so results + primer arrows render.
+    var oc = bootstrap.Offcanvas.getInstance(document.getElementById('mutationLibrary'));
+    if (oc) oc.hide();
+    document.getElementById('vizForm').submit();
+  }
+
+  /* ── Library search filter ── */
+  (function () {
+    var search = document.getElementById('libSearch');
+    if (!search) return;
+    search.addEventListener('input', function () {
+      var q = this.value.trim().toLowerCase();
+      var anyVisible = false;
+      document.querySelectorAll('.lib-item').forEach(function (item) {
+        var hay = item.getAttribute('data-search') || '';
+        var show = q === '' || hay.indexOf(q) !== -1;
+        item.style.display = show ? '' : 'none';
+        if (show) anyVisible = true;
+      });
+      document.getElementById('libEmpty').style.display = anyVisible ? 'none' : '';
+    });
+  })();
+
+  /* ── Circular plasmid map renderer ── */
+  function renderPlasmidMap() {
+    var svg = document.getElementById('plasmidSvg');
+    var dataEl = document.getElementById('plasmidData');
+    if (!svg || !dataEl) return;
+    svg.innerHTML = ''; // idempotent: clear before (re)drawing
+
+    var d;
+    try { d = JSON.parse(dataEl.textContent); } catch (e) { return; }
+    if (!d.seqLen || d.seqLen < 1) return;
+
+    var SVGNS = 'http://www.w3.org/2000/svg';
+    var CX = 160, CY = 160, R = 120;
+
+    function pt(frac, radius) {
+      // 0 at top (12 o'clock), clockwise.
+      var a = (frac * 2 * Math.PI) - Math.PI / 2;
+      return [CX + radius * Math.cos(a), CY + radius * Math.sin(a)];
+    }
+    function mk(tag, attrs) {
+      var e = document.createElementNS(SVGNS, tag);
+      for (var k in attrs) e.setAttribute(k, attrs[k]);
+      return e;
+    }
+    // Arc path between two base positions on a given radius.
+    function arc(startBase, endBase, radius, color, width) {
+      var f0 = Math.min(startBase, endBase) / d.seqLen;
+      var f1 = Math.max(startBase, endBase) / d.seqLen;
+      if (f1 - f0 < 0.012) f1 = f0 + 0.012; // keep short features visible
+      var p0 = pt(f0, radius), p1 = pt(f1, radius);
+      var large = (f1 - f0) > 0.5 ? 1 : 0;
+      return mk('path', {
+        d: 'M ' + p0[0] + ' ' + p0[1] + ' A ' + radius + ' ' + radius + ' 0 ' + large + ' 1 ' + p1[0] + ' ' + p1[1],
+        fill: 'none', stroke: color, 'stroke-width': width, 'stroke-linecap': 'round'
+      });
+    }
+
+    // Backbone ring.
+    svg.appendChild(mk('circle', { cx: CX, cy: CY, r: R, fill: 'none', stroke: '#11202e', 'stroke-width': 10 }));
+    svg.appendChild(mk('circle', { cx: CX, cy: CY, r: R, fill: 'none', stroke: '#6b819a', 'stroke-width': 1 }));
+
+    // Tick marks every ~10% with bp labels.
+    for (var t = 0; t < 10; t++) {
+      var frac = t / 10;
+      var a = pt(frac, R + 5), b = pt(frac, R - 5);
+      svg.appendChild(mk('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: '#7a93ad', 'stroke-width': 1 }));
+      var lp = pt(frac, R + 16);
+      var lbl = mk('text', { x: lp[0], y: lp[1], fill: '#8ea4ba', 'font-size': 8,
+        'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'monospace' });
+      lbl.textContent = Math.round(frac * d.seqLen);
+      svg.appendChild(lbl);
+    }
+
+    // Primer arcs (on slightly different radii so both are visible).
+    if (d.fwdStart !== null && d.fwdEnd !== null) {
+      svg.appendChild(arc(d.fwdStart, d.fwdEnd, R + 9, '#3b82f6', 5));
+    }
+    if (d.revStart !== null && d.revEnd !== null) {
+      svg.appendChild(arc(d.revStart, d.revEnd, R - 9, '#ef4444', 5));
+    }
+
+    // Mutation / insert marker.
+    if (d.mutStart !== null) {
+      var mEnd = (d.mutEnd !== null && d.mutEnd > d.mutStart) ? d.mutEnd : d.mutStart + 1;
+      var midFrac = ((d.mutStart + mEnd) / 2) / d.seqLen;
+      // Highlight arc on the backbone.
+      svg.appendChild(arc(d.mutStart, mEnd, R, '#f59e0b', 11));
+      // Pointer + label outside the ring.
+      var inner = pt(midFrac, R + 8), outer = pt(midFrac, R + 30);
+      svg.appendChild(mk('line', { x1: inner[0], y1: inner[1], x2: outer[0], y2: outer[1], stroke: '#f59e0b', 'stroke-width': 1.5 }));
+      svg.appendChild(mk('circle', { cx: outer[0], cy: outer[1], r: 3, fill: '#f59e0b' }));
+      var onLeft = outer[0] < CX;
+      var lbl2 = mk('text', { x: outer[0] + (onLeft ? -6 : 6), y: outer[1], fill: '#fbbf24',
+        'font-size': 9, 'font-weight': 700, 'text-anchor': onLeft ? 'end' : 'start',
+        'dominant-baseline': 'middle' });
+      lbl2.textContent = (d.mode === 'primers') ? 'amplicon' : ('pos ' + (d.mutStart + 1));
+      svg.appendChild(lbl2);
+    }
+
+    // Center label: total length.
+    var c1 = mk('text', { x: CX, y: CY - 6, fill: '#e6eef5', 'font-size': 20, 'font-weight': 700,
+      'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'monospace' });
+    c1.textContent = d.seqLen;
+    svg.appendChild(c1);
+    var c2 = mk('text', { x: CX, y: CY + 12, fill: '#8ea4ba', 'font-size': 9,
+      'text-anchor': 'middle', 'dominant-baseline': 'middle', 'letter-spacing': 1 });
+    c2.textContent = 'bp';
+    svg.appendChild(c2);
+  }
+
+  // Draw on first load (server-rendered results) and again whenever results are
+  // restored from a previous run after navigating back to this tab.
+  window.peekOnResultsReady = function () { renderPlasmidMap(); };
+  document.addEventListener('DOMContentLoaded', renderPlasmidMap);
+</script>
+{% endblock %}

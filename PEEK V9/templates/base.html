@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PEEK - Protein Engineering Efficiency Kit{% endblock %}</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css', v=asset_version('css/style.css')) }}" rel="stylesheet">
+    <!-- Tells the client-side result-persistence layer whether this render came
+         from a form submission (POST) or a plain navigation (GET). Defined in
+         <head> so inline page scripts can rely on it during parse. -->
+    <script>window.PEEK_DID_POST = {{ 'true' if request.method == 'POST' else 'false' }};</script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark peek-navbar">
+        <div class="container">
+            <a class="navbar-brand peek-brand" href="{{ url_for('home') }}">
+                <i class="fas fa-dna me-2"></i>
+                <strong>PEEK</strong>
+                <span class="navbar-subtitle ms-2">Protein Engineering Efficiency Kit</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'silent_mutations' %}active{% endif %}" 
+                           href="{{ url_for('silent_mutations') }}">
+                            Silent Mutations
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'primer_design' %}active{% endif %}" 
+                           href="{{ url_for('primer_design') }}">
+                            Primer Design
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'sequence_visualizer' %}active{% endif %}"
+                           href="{{ url_for('sequence_visualizer') }}">
+                            Sequence Visualizer
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'about' %}active{% endif %}"
+                           href="{{ url_for('about') }}">
+                            About
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container mt-3">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'info' if category == 'info' else 'success' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <main class="container mt-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="peek-footer text-center py-5 mt-5">
+        <div class="container">
+            <small class="text-muted">
+                
+                PEEK - Protein Engineering Efficiency Kit | 
+                Advanced Molecular Biology Research Platform
+            </small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js', v=asset_version('js/main.js')) }}"></script>
+</body>
+</html>
